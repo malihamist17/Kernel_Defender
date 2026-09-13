@@ -1,0 +1,389 @@
+"""
+monitor.py — Kernel Defender monitoring layer.
+
+Reads REAL kernel-exposed state from /proc and /sys. No simulated numbers.
+This is the "Engine 1" data source: CPU, memory, processes, threads, temp.
+"""
+import glob
+import os
+import subprocess
+import time
+
+
+# ---------- CPU ----------
+
+def read_cpu_times():
+    """Parse the aggregate 'cpu' line in /proc/stat -> dict of jiffies."""
+    with open("/proc/stat") as f:
+        line = f.readline()
+    fields = line.split()
+    labels = ["user", "nice", "system", "idle", "iowait",
+              "irq", "softirq", "steal", "guest", "guest_nice"]
+    values = [int(x) for x in fields[1:]]
+    return dict(zip(labels, values))
+
+
+def read_per_core_times():
+    """Parse every 'cpuN' line in /proc/stat -> {core_label: jiffies dict}."""
+    labels = ["user", "nice", "system", "idle", "iowait",
+              "irq", "softirq", "steal", "guest", "guest_nice"]
+    cores = {}
+    with open("/proc/stat") as f:
+        for line in f:
+            if not line.startswith("cpu"):
+                break
+            fields = line.split()
+            name = fields[0]
+            if name == "cpu":
+                continue  # aggregate line, not a per-core one
+            values = [int(x) for x in fields[1:]]
+            cores[name] = dict(zip(labels, values))
+    return cores
+
+
+def per_core_utilization_percent(sample_interval=0.2):
+    """Real per-core utilization — same two-sample technique as the
+    aggregate figure, applied to each 'cpuN' line."""
+    t1 = read_per_core_times()
+    time.sleep(sample_interval)
+    t2 = read_per_core_times()
+
+    result = {}
+    for core in t1:
+        if core not in t2:
+            continue
+        idle1 = t1[core]["idle"] + t1[core]["iowait"]
+        idle2 = t2[core]["idle"] + t2[core]["iowait"]
+        total1 = sum(t1[core].values())
+        total2 = sum(t2[core].values())
+        total_delta = total2 - total1
+        idle_delta = idle2 - idle1
+        result[core] = round((1 - idle_delta / total_delta) * 100, 1) if total_delta else 0.0
+    return result
+
+
+def cpu_utilization_percent(sample_interval=0.2):
+    """Real CPU utilization via two /proc/stat samples (like `top` does)."""
+    t1 = read_cpu_times()
+    time.sleep(sample_interval)
+    t2 = read_cpu_times()
+
+    idle1 = t1["idle"] + t1["iowait"]
+    idle2 = t2["idle"] + t2["iowait"]
+    total1 = sum(t1.values())
+    total2 = sum(t2.values())
+
+    total_delta = total2 - total1
+    idle_delta = idle2 - idle1
+    if total_delta == 0:
+        return 0.0
+    return round((1 - idle_delta / total_delta) * 100, 1)
+
+
+def cpu_frequencies_mhz():
+    """Per-core current frequency from cpufreq (kHz -> MHz)."""
+    freqs = {}
+    for path in sorted(glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq")):
+        core = path.split("/")[5]  # e.g. cpu0
+        try:
+            with open(path) as f:
+                khz = int(f.read().strip())
+            freqs[core] = round(khz / 1000, 1)
+        except (IOError, PermissionError):
+            freqs[core] = None
+    return freqs
+
+
+def cpu_governor():
+    path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except (IOError, FileNotFoundError):
+        return "unavailable"
+
+
+def cpu_available_governors():
+    path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors"
+    try:
+        with open(path) as f:
+            return f.read().split()
+    except (IOError, FileNotFoundError):
+        return []
+
+
+def cpu_temperature_c():
+    """Best-effort: scan thermal zones. Not all machines expose this."""
+    for zone in sorted(glob.glob("/sys/class/thermal/thermal_zone*/temp")):
+        try:
+            with open(zone) as f:
+                milli_c = int(f.read().strip())
+            return round(milli_c / 1000, 1)
+        except (IOError, PermissionError, ValueError):
+            continue
+    return None
+
+
+# ---------- Memory ----------
+
+def memory_stats():
+    """Parse /proc/meminfo into a dict of MB values."""
+    stats = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            key, val = line.split(":")
+            kb = int(val.strip().split()[0])
+            stats[key] = round(kb / 1024, 1)  # MB
+    total = stats.get("MemTotal", 0)
+    avail = stats.get("MemAvailable", 0)
+    used = round(total - avail, 1)
+    used_pct = round((used / total) * 100, 1) if total else 0
+    return {
+        "total_mb": total,
+        "available_mb": avail,
+        "used_mb": used,
+        "used_percent": used_pct,
+        "swap_total_mb": stats.get("SwapTotal", 0),
+        "swap_used_mb": round(stats.get("SwapTotal", 0) - stats.get("SwapFree", 0), 1),
+    }
+
+
+# ---------- Processes / Threads ----------
+
+def list_processes(limit=25):
+    """Walk /proc/[pid] directly (this is literally what `ps` does)."""
+    procs = []
+    for pid_dir in glob.glob("/proc/[0-9]*"):
+        pid = os.path.basename(pid_dir)
+        try:
+            with open(f"{pid_dir}/status") as f:
+                status = f.read()
+            with open(f"{pid_dir}/stat") as f:
+                stat_fields = f.read().split()
+            name = _extract(status, "Name")
+            state = _extract(status, "State").split()[0]
+            ppid = _extract(status, "PPid")
+            vm_rss_kb = _extract(status, "VmRSS")
+            threads = _extract(status, "Threads")
+            procs.append({
+                "pid": pid,
+                "ppid": ppid,
+                "name": name,
+                "state": state,          # R, S, D, Z, T ...
+                "is_zombie": state == "Z",
+                "mem_kb": vm_rss_kb,
+                "threads": threads,
+            })
+        except (IOError, IndexError, FileNotFoundError):
+            continue  # process exited between listdir and read — normal race
+    return procs[:limit]
+
+
+def process_threads(pid):
+    """List thread IDs (TIDs) for a PID by reading /proc/[pid]/task/."""
+    task_dir = f"/proc/{pid}/task"
+    if not os.path.isdir(task_dir):
+        return []
+    return sorted(os.listdir(task_dir), key=int)
+
+
+def _extract(status_text, field):
+    for line in status_text.splitlines():
+        if line.startswith(field + ":"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def zombies():
+    return [p for p in list_processes(limit=10_000) if p["is_zombie"]]
+
+
+def top_cpu_process():
+    """Real top-CPU-consuming process via `ps` (the same tool a sysadmin
+    would use). Used by the Incident investigation flow to pick a genuine
+    renice target instead of guessing."""
+    try:
+        out = subprocess.run(
+            ["ps", "-eo", "pid,comm,pcpu", "--no-headers", "--sort=-pcpu"],
+            capture_output=True, text=True, timeout=2,
+        )
+        lines = [l for l in out.stdout.strip().splitlines() if l.strip()]
+        if not lines:
+            return None
+        pid, comm, pcpu = lines[0].split(None, 2)
+        return {"pid": int(pid), "comm": comm.strip(), "cpu_percent": float(pcpu)}
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return None
+
+
+def renice_process(pid, priority=10):
+    """Actually lowers a process's scheduling priority via the real `renice`
+    command. Raising niceness (lowering priority) on your OWN process works
+    without root; lowering niceness on another user's process needs root -
+    we report the real success/failure rather than assuming it worked."""
+    try:
+        result = subprocess.run(
+            ["renice", "-n", str(priority), "-p", str(pid)],
+            capture_output=True, text=True, timeout=2,
+        )
+        return {
+            "success": result.returncode == 0,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "command": f"renice -n {priority} -p {pid}",
+        }
+    except (subprocess.SubprocessError, OSError) as e:
+        return {"success": False, "error": str(e)}
+
+
+def process_info(pid):
+    """Real process name via /proc/<pid>/comm — used so the user can see
+    exactly what they'd be terminating before confirming."""
+    try:
+        with open(f"/proc/{pid}/comm") as f:
+            comm = f.read().strip()
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmdline = f.read().replace(b"\x00", b" ").decode(errors="replace").strip()
+        return {"pid": pid, "comm": comm, "cmdline": cmdline or comm}
+    except FileNotFoundError:
+        return None
+
+
+def can_signal(pid):
+    """Checks real permission to signal a process WITHOUT actually sending
+    a signal (signal 0 is a no-op probe defined for exactly this purpose)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return None  # already gone
+    except PermissionError:
+        return False
+
+
+def ps_listing(sort_flag="-%cpu", count=10):
+    """Real `ps aux --sort=...` output — the literal command your design
+    doc's mockups show, not a reimplementation of it."""
+    cmd = ["ps", "aux", f"--sort={sort_flag}"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+        lines = result.stdout.splitlines()
+        body = "\n".join(lines[: count + 1])  # header + top `count` rows
+        return {"command": " ".join(cmd), "output": body}
+    except (subprocess.SubprocessError, OSError) as e:
+        return {"command": " ".join(cmd), "output": f"error: {e}"}
+
+
+def ps_for_pids(pids):
+    """Real `ps -o pid,ppid,stat,cmd -p <pid>` for specific PIDs — exactly
+    the command/output pair shown in the doc's zombie investigation mockup."""
+    cmd = ["ps", "-o", "pid,ppid,stat,cmd"]
+    for p in pids:
+        cmd += ["-p", str(p)]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+        return {"command": " ".join(cmd), "output": result.stdout.strip() or "(process no longer exists)"}
+    except (subprocess.SubprocessError, OSError) as e:
+        return {"command": " ".join(cmd), "output": f"error: {e}"}
+
+
+# ---------- Process tree ----------
+
+def process_tree():
+    """Build a parent->children tree from /proc, same relationships `pstree` uses."""
+    procs = list_processes(limit=10_000)
+    by_pid = {p["pid"]: {**p, "children": []} for p in procs}
+    roots = []
+    for p in by_pid.values():
+        parent = by_pid.get(p["ppid"])
+        if parent:
+            parent["children"].append(p)
+        else:
+            roots.append(p)
+    return roots
+
+
+def top_memory_consumers(limit=10):
+    """Sort real processes by resident memory (VmRSS from /proc/[pid]/status)."""
+    procs = list_processes(limit=10_000)
+    def mem_kb(p):
+        try:
+            return int(p["mem_kb"].split()[0]) if p["mem_kb"] else 0
+        except (ValueError, IndexError):
+            return 0
+    return sorted(procs, key=mem_kb, reverse=True)[:limit]
+
+
+# ---------- Disk I/O ----------
+
+def disk_io_stats():
+    """Parse /proc/diskstats — real sectors read/written per block device.
+    Field layout: https://www.kernel.org/doc/Documentation/iostats.txt"""
+    devices = {}
+    with open("/proc/diskstats") as f:
+        for line in f:
+            fields = line.split()
+            if len(fields) < 14:
+                continue
+            name = fields[2]
+            if name[-1].isdigit() and not name.startswith(("loop", "ram")):
+                # keep whole disks + partitions, skip loop/ram devices
+                pass
+            if name.startswith(("loop", "ram")):
+                continue
+            devices[name] = {
+                "reads_completed": int(fields[3]),
+                "sectors_read": int(fields[5]),
+                "writes_completed": int(fields[7]),
+                "sectors_written": int(fields[9]),
+            }
+    return devices
+
+
+def disk_io_delta(before, after, sector_size=512):
+    """Compute real KB read/written between two disk_io_stats() snapshots."""
+    delta = {}
+    for name, after_vals in after.items():
+        before_vals = before.get(name)
+        if not before_vals:
+            continue
+        read_kb = (after_vals["sectors_read"] - before_vals["sectors_read"]) * sector_size / 1024
+        write_kb = (after_vals["sectors_written"] - before_vals["sectors_written"]) * sector_size / 1024
+        if read_kb or write_kb:
+            delta[name] = {"read_kb": round(read_kb, 1), "write_kb": round(write_kb, 1)}
+    return delta
+
+
+# ---------- Kernel Defender module status (Level 3 kernel customization) ----------
+
+def kernel_defender_status():
+    """Real status from the custom kernel module, via /proc/kernel_defender.
+    Honestly reports 'not loaded' if you haven't built/insmod'd it — see
+    backend/kernel/ and STEPS.md."""
+    try:
+        import sys, os as _os
+        sys.path.append(_os.path.join(_os.path.dirname(__file__), "kernel"))
+        import kernel_interface
+        return kernel_interface.read_status()
+    except ImportError:
+        return {"loaded": False, "detail": "kernel_interface module not found."}
+
+
+# ---------- Snapshot used by the Incident Detector ----------
+
+def snapshot():
+    return {
+        "cpu_percent": cpu_utilization_percent(sample_interval=0.15),
+        "cpu_freq_mhz": cpu_frequencies_mhz(),
+        "cpu_governor": cpu_governor(),
+        "cpu_temp_c": cpu_temperature_c(),
+        "memory": memory_stats(),
+        "zombies": zombies(),
+        "kernel_defender": kernel_defender_status(),
+        "timestamp": time.time(),
+    }
+
+
+if __name__ == "__main__":
+    import json
+    print(json.dumps(snapshot(), indent=2))
