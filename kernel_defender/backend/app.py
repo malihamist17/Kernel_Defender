@@ -22,7 +22,7 @@ import db
 import incident_actions
 from experiments.deadlock_experiment import DeadlockExperiment, guard_on_off_comparison
 from experiments.starvation_experiment import StarvationExperiment
-from experiments import cpu_experiment, memory_experiment, io_experiment, zombie_experiment
+from experiments import cpu_experiment, memory_experiment, io_experiment, zombie_experiment, ipc_experiment, scheduling_experiment
 
 app = FastAPI(title="Kernel Defender API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -213,6 +213,57 @@ def run_io_experiment(size_mb: int = 200):
         inc = result["incident"]
         new_incident(inc["type"], inc["severity"], inc["detail"])
     db.save_experiment("io", result)
+    return result
+# ---------------- IPC Lab ----------------
+
+@app.post("/api/experiments/ipc/run")
+def run_ipc(method: str = "pipe", n_messages: int = 1000):
+    if method == "pipe":
+        result = ipc_experiment.pipe_experiment(n_messages)
+    elif method == "queue":
+        result = ipc_experiment.queue_experiment(n_messages)
+    elif method == "shared_memory":
+        result = ipc_experiment.shared_memory_experiment(n_messages)
+    elif method == "socket":
+        result = ipc_experiment.socket_experiment(n_messages)
+    else:
+        return {"error": f"unknown method '{method}'"}
+    db.save_experiment(f"ipc_{method}", result)
+    return result
+
+
+@app.post("/api/experiments/ipc/compare")
+def compare_ipc(n_messages: int = 500):
+    result = ipc_experiment.compare_all(n_messages)
+    db.save_experiment("ipc_comparison", result)
+    return result
+
+
+
+# ---------------- Scheduling Lab ----------------
+
+@app.post("/api/experiments/scheduling/run")
+def run_scheduling(algorithm: str = "FCFS", quantum: int = 2):
+    procs = scheduling_experiment.example_processes()
+    if algorithm == "FCFS":
+        result = scheduling_experiment.fcfs(procs)
+    elif algorithm == "SJF":
+        result = scheduling_experiment.sjf(procs)
+    elif algorithm == "Round Robin":
+        result = scheduling_experiment.round_robin(procs, quantum)
+    elif algorithm == "Priority":
+        result = scheduling_experiment.priority_scheduling(procs)
+    else:
+        return {"error": f"unknown algorithm '{algorithm}'"}
+    db.save_experiment(f"scheduling_{algorithm}", result)
+    return result
+
+
+@app.post("/api/experiments/scheduling/compare")
+def compare_scheduling(quantum: int = 2):
+    procs = scheduling_experiment.example_processes()
+    result = scheduling_experiment.compare_all(procs, quantum)
+    db.save_experiment("scheduling_comparison", result)
     return result
 
 

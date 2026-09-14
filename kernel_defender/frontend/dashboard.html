@@ -67,6 +67,8 @@
   <div class="item active" data-tab="dashboard">🏠 Dashboard</div>
   <div class="item" data-tab="experiments">🧪 Experiment Lab</div>
   <div class="item" data-tab="analytics">📊 Analytics</div>
+  <div class="item" data-tab="ipc">📡 IPC Lab</div>
+  <div class="item" data-tab="scheduling">📅 Scheduling Lab</div>
   <div class="item" data-tab="trace">📜 Execution Trace</div>
   <div class="item" data-tab="learn">📖 Learn</div>
 </nav>
@@ -279,6 +281,10 @@
     </div>
   </div>
 
+
+
+
+
   <!-- KERNEL DEFENDER LAB -->
   <div class="subpanel" id="sub-kernel">
     <div class="card section">
@@ -332,6 +338,128 @@ cat /proc/kernel_defender   # verify</pre>
     </div>
   </div>
 </section>
+
+<!-- IPC LAB -->
+<section class="panel" id="panel-ipc">
+  <h2>IPC LAB — INTERPROCESS COMMUNICATION</h2>
+
+  <div class="row" style="margin-bottom:16px;">
+    <div class="col card">
+      <h3>PROCESS A (Parent)</h3>
+      <div class="big" id="ipc-a-pid">—</div>
+      <div style="color:var(--muted);font-size:12px;margin-top:6px;">Real OS PID — verify with: <code>ps -p &lt;pid&gt;</code></div>
+    </div>
+    <div class="col card">
+      <h3>PROCESS B (Child)</h3>
+      <div class="big" id="ipc-b-pid">—</div>
+      <div style="color:var(--muted);font-size:12px;margin-top:6px;">Separate process, separate memory</div>
+    </div>
+  </div>
+
+  <div class="card section">
+    <h3>Choose IPC Method</h3>
+    <label><input type="radio" name="ipc-method" value="pipe" checked> Pipe <span style="color:var(--muted);">(pipe(2) syscall)</span></label>
+    <label style="margin-left:14px"><input type="radio" name="ipc-method" value="queue"> Queue <span style="color:var(--muted);">(pipe + locks)</span></label>
+    <label style="margin-left:14px"><input type="radio" name="ipc-method" value="shared_memory"> Shared Memory <span style="color:var(--muted);">(shm_open + mmap)</span></label>
+    <label style="margin-left:14px"><input type="radio" name="ipc-method" value="socket"> Socket <span style="color:var(--muted);">(AF_UNIX socket)</span></label>
+    <br><br>
+    <label>Messages: <input id="ipc-count" type="number" value="500" style="width:90px"></label>
+    <br><br>
+    <button class="primary" onclick="runIpc()">START EXPERIMENT</button>
+    <button onclick="compareIpc()">COMPARE ALL METHODS</button>
+  </div>
+
+  <div class="row">
+    <div class="col card">
+      <h3>Metrics (this run)</h3>
+      <pre id="ipc-metrics">No experiment run yet.</pre>
+    </div>
+    <div class="col card">
+      <h3>Comparison — Throughput (msg/sec)</h3>
+      <div id="ipc-chart"><i style="color:var(--muted);">Click "Compare All Methods" to see the chart.</i></div>
+    </div>
+  </div>
+
+  <div class="card section">
+    <h3>Why the differences matter</h3>
+    <div style="font-size:13px;line-height:1.7;color:var(--text);">
+      <b>Socket</b> — fastest here because Unix domain sockets skip network stack overhead; the kernel just copies bytes between two processes.<br>
+      <b>Pipe</b> — similar to socket but simpler; the kernel manages a small buffer.<br>
+      <b>Shared Memory</b> — no kernel copying at all; both processes map the same physical pages. Wins for large data.<br>
+      <b>Queue</b> — pipe + internal lock + buffer management; safe but slow.
+    </div>
+  </div>
+</section>
+
+<!-- SCHEDULING LAB -->
+<section class="panel" id="panel-scheduling">
+  <h2>SCHEDULING LAB — CPU SCHEDULING ALGORITHMS</h2>
+
+  <div class="card section">
+    <h3>Processes</h3>
+    <table id="sched-input" style="width:auto;">
+      <thead>
+        <tr><th>PID</th><th>Arrival</th><th>Burst</th><th>Priority</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>P1</td><td>0</td><td>5</td><td>2</td></tr>
+        <tr><td>P2</td><td>1</td><td>3</td><td>1</td></tr>
+        <tr><td>P3</td><td>2</td><td>8</td><td>3</td></tr>
+        <tr><td>P4</td><td>3</td><td>2</td><td>4</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:10px;font-size:12px;color:var(--muted);">
+      Fixed example from the OS textbook (4 processes, mixed bursts).
+    </div>
+  </div>
+
+  <div class="card section">
+    <h3>Choose Algorithm</h3>
+    <label><input type="radio" name="sched-algo" value="FCFS" checked> FCFS</label>
+    <label style="margin-left:14px"><input type="radio" name="sched-algo" value="SJF"> SJF (non-preemptive)</label>
+    <label style="margin-left:14px"><input type="radio" name="sched-algo" value="Round Robin"> Round Robin</label>
+    <label style="margin-left:14px"><input type="radio" name="sched-algo" value="Priority"> Priority</label>
+    <br><br>
+    <label>Quantum: <input id="sched-quantum" type="number" value="2" style="width:60px"></label>
+    <br><br>
+    <button class="primary" onclick="runScheduling()">▶ RUN ANIMATED</button>
+    <button onclick="compareScheduling()">📊 COMPARE ALL</button>
+    <button onclick="raceScheduling()">🏁 RACE VIEW</button>
+  </div>
+
+  <div class="card section">
+    <h3>Gantt Chart</h3>
+    <div id="sched-gantt" style="min-height:70px;font-size:12px;color:var(--muted);">Run an algorithm to see the chart.</div>
+    <div id="sched-current" style="margin-top:14px;font-size:13px;"></div>
+  </div>
+
+  <div class="card section">
+    <h3>Results</h3>
+    <table id="sched-results">
+      <thead><tr><th>PID</th><th>Arrival</th><th>Burst</th><th>Completion</th><th>Turnaround</th><th>Waiting</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="sched-summary" style="margin-top:10px;font-size:13px;"></div>
+  </div>
+
+  <div class="card section">
+    <h3>Race View</h3>
+    <div id="sched-race" style="font-size:12px;color:var(--muted);">Click "🏁 RACE VIEW" to see processes race to finish.</div>
+  </div>
+
+  <div class="card section">
+    <h3>Algorithm Comparison</h3>
+    <div id="sched-comparison" style="font-size:13px;">Click "📊 COMPARE ALL" to compare four algorithms.</div>
+  </div>
+</section>
+
+
+
+
+
+
+
+
 
 <!-- ANALYTICS -->
 <section class="panel" id="panel-analytics">
@@ -880,6 +1008,247 @@ async function kernelTestWithMemory(){
   document.getElementById("kernel-integration-result").textContent = JSON.stringify(r, null, 2);
   refreshKernelStatus();
 }
+// ---------- IPC Lab ----------
+async function runIpc(){
+  const method = document.querySelector('input[name="ipc-method"]:checked').value;
+  const count = document.getElementById("ipc-count").value;
+  document.getElementById("ipc-metrics").textContent = "Running…";
+  const r = await api(`/api/experiments/ipc/run?method=${method}&n_messages=${count}`, {method:"POST"});
+
+  document.getElementById("ipc-a-pid").textContent = r.parent_pid ?? "—";
+  document.getElementById("ipc-b-pid").textContent = r.child_pid ?? "—";
+  document.getElementById("ipc-metrics").textContent = JSON.stringify(r, null, 2);
+}
+
+async function compareIpc(){
+  const count = document.getElementById("ipc-count").value;
+  document.getElementById("ipc-chart").innerHTML = '<i style="color:var(--muted);">Running all methods…</i>';
+  const r = await api(`/api/experiments/ipc/compare?n_messages=${count}`, {method:"POST"});
+
+  if (r.error){
+    document.getElementById("ipc-chart").textContent = "Error: " + r.error;
+    return;
+  }
+
+  const entries = Object.entries(r).filter(([_, v]) => v.throughput_msg_per_sec);
+  if (!entries.length){
+    document.getElementById("ipc-chart").textContent = "No data.";
+    return;
+  }
+
+  const max = Math.max(...entries.map(([_, v]) => v.throughput_msg_per_sec));
+
+  const html = entries
+    .sort((a, b) => b[1].throughput_msg_per_sec - a[1].throughput_msg_per_sec)
+    .map(([name, v]) => {
+      const pct = (v.throughput_msg_per_sec / max) * 100;
+      return `<div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;">
+          <span><b>${name}</b></span>
+          <span>${v.throughput_msg_per_sec.toLocaleString()} msg/s <span style="color:var(--muted);">· ${v.elapsed_sec}s</span></span>
+        </div>
+        <div style="background:#21262d;height:16px;border-radius:3px;overflow:hidden;">
+          <div style="background:linear-gradient(90deg,var(--accent),#79c0ff);height:100%;width:${pct}%;border-radius:3px;transition:width 0.4s;"></div>
+        </div>
+      </div>`;
+    }).join("");
+
+  document.getElementById("ipc-chart").innerHTML = html;
+}
+
+// ---------- Scheduling Lab ----------
+
+const SCHED_COLORS = {
+  "P1": "#58a6ff", "P2": "#3fb950", "P3": "#d29922", "P4": "#f85149",
+  "P5": "#a371f7", "P6": "#ff7b72", "P7": "#79c0ff", "P8": "#56d364"
+};
+
+function schedColor(pid){ return SCHED_COLORS[pid] || "#8b949e"; }
+
+async function runScheduling(){
+  const algo = document.querySelector('input[name="sched-algo"]:checked').value;
+  const quantum = document.getElementById("sched-quantum").value;
+  const url = `/api/experiments/scheduling/run?algorithm=${encodeURIComponent(algo)}&quantum=${quantum}`;
+  const r = await api(url, {method:"POST"});
+  if (r.error){ document.getElementById("sched-gantt").textContent = "Error: " + r.error; return; }
+  animateGantt(r);
+  renderSchedTable(r);
+}
+
+async function compareScheduling(){
+  const quantum = document.getElementById("sched-quantum").value;
+  document.getElementById("sched-comparison").textContent = "Running all four algorithms…";
+  const r = await api(`/api/experiments/scheduling/compare?quantum=${quantum}`, {method:"POST"});
+  if (r.error){ document.getElementById("sched-comparison").textContent = "Error: " + r.error; return; }
+
+  const best = r._best;
+  const rows = Object.entries(r).filter(([k]) => k !== "_best").map(([name, data]) => {
+    const star = (name === best) ? ' <span style="color:var(--ok);">★</span>' : '';
+    return `<tr>
+      <td><b>${name}</b>${star}</td>
+      <td>${data.avg_waiting_sec} s</td>
+      <td>${data.avg_turnaround_sec} s</td>
+      <td>${data.context_switches}</td>
+    </tr>`;
+  }).join("");
+
+  document.getElementById("sched-comparison").innerHTML = `
+    <table>
+      <thead><tr><th>Algorithm</th><th>Avg Waiting</th><th>Avg Turnaround</th><th>Context Switches</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:10px;color:var(--muted);">
+      ★ = best (lowest average waiting time). Round Robin has the most context switches — that's the scheduling overhead.
+    </div>
+  `;
+}
+
+function animateGantt(result){
+  const container = document.getElementById("sched-gantt");
+  const currentBox = document.getElementById("sched-current");
+  const timeline = result.timeline;
+  const totalTime = result.total_time;
+
+  // compute scale (pixels per time unit)
+  const pxPerUnit = Math.max(30, Math.min(80, 900 / totalTime));
+
+  container.innerHTML = "";
+  const bar = document.createElement("div");
+  bar.style.display = "flex";
+  bar.style.borderBottom = "1px solid var(--line)";
+  bar.style.height = "50px";
+  bar.style.position = "relative";
+  container.appendChild(bar);
+
+  // ruler
+  const ruler = document.createElement("div");
+  ruler.style.position = "relative";
+  ruler.style.height = "20px";
+  ruler.style.marginTop = "4px";
+  for (let t = 0; t <= totalTime; t++){
+    if (totalTime <= 20 || t % Math.ceil(totalTime/15) === 0){
+      const tick = document.createElement("span");
+      tick.textContent = t;
+      tick.style.position = "absolute";
+      tick.style.left = (t * pxPerUnit) + "px";
+      tick.style.fontSize = "10px";
+      tick.style.color = "var(--muted)";
+      tick.style.transform = "translateX(-50%)";
+      ruler.appendChild(tick);
+    }
+  }
+  container.appendChild(ruler);
+
+  // animate blocks
+  let i = 0;
+  const blocks = [];
+  const interval = setInterval(() => {
+    if (i >= timeline.length){
+      clearInterval(interval);
+      currentBox.innerHTML = `<b style="color:var(--ok);">✓ All processes complete at t=${totalTime}</b>`;
+      return;
+    }
+    const b = timeline[i];
+    const div = document.createElement("div");
+    div.style.width = ((b.end - b.start) * pxPerUnit) + "px";
+    div.style.height = "50px";
+    div.style.background = schedColor(b.pid);
+    div.style.borderRight = "1px solid var(--bg)";
+    div.style.display = "flex";
+    div.style.alignItems = "center";
+    div.style.justifyContent = "center";
+    div.style.color = "#0d1117";
+    div.style.fontWeight = "600";
+    div.style.fontSize = "13px";
+    div.textContent = b.pid;
+    div.style.opacity = "0";
+    div.style.transition = "opacity 0.3s";
+    bar.appendChild(div);
+    requestAnimationFrame(() => { div.style.opacity = "1"; });
+
+    // current state display
+    const finished = timeline.slice(0, i).map(x => x.pid);
+    const remaining = timeline.slice(i + 1).map(x => x.pid);
+    currentBox.innerHTML = `
+      <b>t = ${b.end}</b> &nbsp;|&nbsp;
+      <b style="color:${schedColor(b.pid)};">Running:</b> ${b.pid} &nbsp;|&nbsp;
+      <b>Finished:</b> ${finished.length ? [...new Set(finished)].join(", ") : "none"} &nbsp;|&nbsp;
+      <b>Remaining:</b> ${remaining.length ? [...new Set(remaining)].join(", ") : "none"}
+    `;
+
+    i++;
+  }, 350);  // 350ms per block
+}
+
+function renderSchedTable(result){
+  const tbody = document.querySelector("#sched-results tbody");
+  tbody.innerHTML = result.processes.map(p => `
+    <tr>
+      <td><span style="display:inline-block;width:10px;height:10px;background:${schedColor(p.pid)};border-radius:2px;margin-right:6px;"></span>${p.pid}</td>
+      <td>${p.arrival}</td>
+      <td>${p.burst}</td>
+      <td>${p.completion}</td>
+      <td>${p.turnaround}</td>
+      <td>${p.waiting}</td>
+    </tr>
+  `).join("");
+
+  document.getElementById("sched-summary").innerHTML = `
+    <b>Avg Waiting:</b> ${result.avg_waiting_sec} s &nbsp;·&nbsp;
+    <b>Avg Turnaround:</b> ${result.avg_turnaround_sec} s &nbsp;·&nbsp;
+    <b>Context Switches:</b> ${result.context_switches} &nbsp;·&nbsp;
+    <b>Total Time:</b> ${result.total_time}
+  `;
+}
+
+async function raceScheduling(){
+  const algo = document.querySelector('input[name="sched-algo"]:checked').value;
+  const quantum = document.getElementById("sched-quantum").value;
+  const url = `/api/experiments/scheduling/run?algorithm=${encodeURIComponent(algo)}&quantum=${quantum}`;
+  const r = await api(url, {method:"POST"});
+  if (r.error){ document.getElementById("sched-race").textContent = "Error: " + r.error; return; }
+
+  const total = r.total_time;
+  const pxPerUnit = Math.max(15, Math.min(40, 800 / total));
+
+  // build a per-PID array of run intervals
+  const byPid = {};
+  r.processes.forEach(p => { byPid[p.pid] = { arrival: p.arrival, completion: p.completion, runs: [] }; });
+  r.timeline.forEach(b => byPid[b.pid].runs.push([b.start, b.end]));
+
+  const html = Object.entries(byPid).map(([pid, data]) => {
+    const totalWidth = (data.completion - 0) * pxPerUnit;
+    const offset = data.arrival * pxPerUnit;
+    // build the track: gray for waiting, colored for running
+    let track = `<div style="position:relative;height:22px;background:#21262d;border-radius:3px;margin-bottom:8px;">`;
+    data.runs.forEach(([s, e]) => {
+      const left = s * pxPerUnit;
+      const width = (e - s) * pxPerUnit;
+      track += `<div style="position:absolute;left:${left}px;top:0;height:100%;width:${width}px;background:${schedColor(pid)};border-radius:3px;"></div>`;
+    });
+    // completion marker
+    const finishLeft = data.completion * pxPerUnit;
+    track += `<div style="position:absolute;left:${finishLeft + 4}px;top:0;height:100%;display:flex;align-items:center;font-size:11px;color:var(--muted);">▶ t=${data.completion}</div>`;
+    track += `</div>`;
+
+    return `<div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:40px;font-weight:600;color:${schedColor(pid)};">${pid}</div>
+      <div style="flex:1;">${track}</div>
+    </div>`;
+  }).join("");
+
+  document.getElementById("sched-race").innerHTML = `
+    <div style="margin-bottom:8px;color:var(--muted);font-size:12px;">
+      Each bar shows when the process actually ran (colored) vs waited (gray).
+    </div>
+    ${html}
+  `;
+}
+
+
+
+
+
 
 // ---------- Analytics ----------
 async function refreshAnalytics(){
