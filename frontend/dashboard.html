@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kernel Defender</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--line:#30363d;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--text:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;}
+  *{box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:ui-monospace,Menlo,Consolas,monospace;margin:0;display:flex;height:100vh;overflow:hidden;}
+  nav{width:190px;background:#010409;border-right:1px solid var(--line);padding:16px 0;flex-shrink:0;overflow-y:auto;}
+  nav h1{font-size:13px;padding:0 16px 14px;margin:0;letter-spacing:1px;border-bottom:1px solid var(--line);margin-bottom:8px;}
+  nav .item{padding:9px 16px;cursor:pointer;font-size:13px;color:var(--muted);border-left:3px solid transparent;}
+  nav .item:hover{color:var(--text);background:#0d1117;}
+  nav .item.active{color:var(--accent);border-left-color:var(--accent);background:#0d1117;}
+  main{flex:1;overflow-y:auto;padding:22px 26px;}
+  .panel{display:none;}
+  .panel.active{display:block;}
+  h2{font-size:16px;margin:0 0 14px;letter-spacing:.5px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;}
+  .card h3{margin:0 0 8px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+  .big{font-size:24px;font-weight:600;}
+  button{background:#21262d;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer;margin:3px 6px 3px 0;font-family:inherit;font-size:12.5px;}
+  button:hover{border-color:var(--muted);}
+  button.primary{border-color:var(--accent);color:var(--accent);}
+  .incident{border-left:3px solid var(--warn);padding:8px 10px;margin:6px 0;background:#1c2128;border-radius:4px;font-size:13px;}
+  .incident.HIGH{border-color:var(--bad);}
+  .incident.LOW{border-color:var(--accent);}
+  pre{background:#010409;padding:10px;border-radius:6px;overflow:auto;max-height:320px;font-size:12px;margin:0;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);}
+  th{color:var(--muted);font-weight:normal;text-transform:uppercase;font-size:10.5px;}
+  .section{margin-bottom:18px;}
+  .row{display:flex;gap:18px;flex-wrap:wrap;}
+  .col{flex:1;min-width:300px;}
+  .trace-entry{border-left:2px solid var(--line);padding:4px 10px;margin:2px 0;font-size:12px;}
+  .trace-entry .kind{color:var(--accent);font-weight:600;margin-right:6px;}
+  .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10.5px;background:#21262d;color:var(--muted);margin-left:6px;}
+  .learn-body{color:var(--text);line-height:1.6;font-size:13px;}
+  select,input{background:#0d1117;color:var(--text);border:1px solid var(--line);border-radius:5px;padding:5px 8px;font-family:inherit;font-size:12.5px;}
+</style>
+</head>
+<body>
+
+<nav>
+  <h1>🛡 KERNEL DEFENDER</h1>
+  <div class="item active" data-tab="dashboard">🏠 Dashboard</div>
+  <div class="item" data-tab="cpu">⚡ CPU Lab</div>
+  <div class="item" data-tab="lockguard">🛡 LockGuard</div>
+  <div class="item" data-tab="processes">⚙ Processes</div>
+  <div class="item" data-tab="memory">🧠 Memory</div>
+  <div class="item" data-tab="io">💾 I/O</div>
+               <div class="item" data-tab="tiered">🧬 Tiered Memory</div>
+  <div class="item" data-tab="experiments">🧪 Experiment Lab</div>
+  <div class="item" data-tab="analytics">📊 Analytics</div>
+  <div class="item" data-tab="trace">📜 Execution Trace</div>
+  <div class="item" data-tab="learn">📖 Learn</div>
+</nav>
+
+<main>
+
+<!-- DASHBOARD -->
+<section class="panel active" id="panel-dashboard">
+  <h2>SYSTEM OVERVIEW <span id="live-status" style="color:var(--ok);font-size:12px;">● LIVE</span></h2>
+  <div class="grid" id="dash-overview"></div>
+  <div class="section card">
+    <h3>ACTIVE INCIDENTS</h3>
+    <div id="dash-incidents"><i>Loading…</i></div>
+  </div>
+</section>
+
+<!-- CPU LAB -->
+<section class="panel" id="panel-cpu">
+  <h2>CPU PERFORMANCE LAB</h2>
+  <div class="grid" id="cpu-overview"></div>
+  <div class="card section">
+    <h3>Run CPU Experiment</h3>
+    <label>Duration (sec): <input id="cpu-seconds" type="number" value="4" style="width:60px"></label>
+    <label style="margin-left:14px">Target governor:
+      <select id="cpu-governor-select">
+        <option value="">(no change)</option>
+        <option value="performance">performance</option>
+        <option value="powersave">powersave</option>
+        <option value="schedutil">schedutil</option>
+      </select>
+    </label>
+    <br><button class="primary" onclick="runCpuExperiment()">RUN EXPERIMENT</button>
+  </div>
+  <div class="card">
+    <h3>Result / Trace</h3>
+    <pre id="cpu-result">No experiment run yet.</pre>
+  </div>
+</section>
+
+<!-- LOCKGUARD -->
+<section class="panel" id="panel-lockguard">
+  <h2>LOCKGUARD — DEADLOCK &amp; STARVATION</h2>
+  <div class="row">
+    <div class="col card">
+      <h3>Deadlock Experiment</h3>
+      <button class="primary" onclick="startDeadlock()">Start Deadlock</button>
+      <button onclick="recoverDeadlock()">Recover (terminate ThreadB's wait)</button>
+      <button onclick="runGuardComparison()">Guard ON vs OFF Comparison</button>
+      <pre id="deadlock-result">No experiment run yet.</pre>
+    </div>
+    <div class="col card">
+      <h3>Starvation Experiment</h3>
+      <button class="primary" onclick="startStarvation()">Start (4 threads)</button>
+      <button onclick="refreshStarvation()">Refresh Report</button>
+      <button onclick="fixStarvation()">Apply Fairness Fix</button>
+      <button onclick="stopStarvation()">Stop</button>
+      <table id="starvation-table"><thead><tr><th>Thread</th><th>Serviced</th><th>Avg Wait</th><th>Max Wait</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="card section" style="margin-top:20px;border-top:2px solid var(--accent)">
+    <h3>Kernel-Level Observation (eBPF + futex tracepoint)</h3>
+    <p style="color:var(--muted);font-size:12px;margin:6px 0 10px">
+      Independent kernel-side view of the same lock contention. Captured via
+      bpftrace on <code>sys_enter_futex</code>. Cross-validates LockGuard's
+      userspace wait-for graph against real futex syscalls.
+    </p>
+    <button onclick="refreshFutex()">Refresh</button>
+    <span id="futex-status" style="color:var(--muted);font-size:12px;margin-left:10px">waiting…</span>
+    <div class="grid" id="futex-stats" style="margin-top:12px"></div>
+    <div id="futex-cycles" style="margin-top:12px"></div>
+    <div id="futex-waiters" style="margin-top:12px"></div>
+    <table id="futex-table" style="margin-top:12px">
+      <thead><tr><th>Time</th><th>PID</th><th>TID</th><th>Comm</th>
+                 <th>Futex address</th><th>Op</th><th>Wait (µs)</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- PROCESSES -->
+<section class="panel" id="panel-processes">
+  <h2>PROCESSES</h2>
+  <div class="card section">
+    <h3>Zombie Process Lab</h3>
+    <button class="primary" onclick="createZombie()">Create Controlled Zombie</button>
+    <button onclick="zombieStatus()">Check Status</button>
+    <button onclick="reapZombie()">Reap (Fix)</button>
+    <pre id="zombie-result">No zombie created yet.</pre>
+  </div>
+  <div class="card">
+    <h3>Process List (live, from /proc)</h3>
+    <button onclick="refreshProcesses()">Refresh</button>
+    <table id="process-table"><thead><tr><th>PID</th><th>PPID</th><th>Name</th><th>State</th><th>Mem</th><th>Threads</th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<!-- MEMORY -->
+<section class="panel" id="panel-memory">
+  <h2>MEMORY</h2>
+  <div class="grid" id="memory-overview"></div>
+  <div class="card section">
+    <h3>Memory Pressure Experiment</h3>
+    <label>Target MB: <input id="mem-target" type="number" value="512" style="width:80px"></label>
+    <label style="margin-left:14px">Hold sec: <input id="mem-hold" type="number" value="4" style="width:60px"></label>
+    <br><button class="primary" onclick="runMemoryExperiment()">Allocate</button>
+    <button onclick="releaseMemory()">Release</button>
+    <pre id="memory-result">No experiment run yet.</pre>
+  </div>
+  <div class="card">
+    <h3>Top Memory Consumers</h3>
+    <button onclick="refreshTopMemory()">Refresh</button>
+    <table id="memory-table"><thead><tr><th>PID</th><th>Name</th><th>RSS</th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<!-- I/O -->
+<section class="panel" id="panel-io">
+  <h2>DISK I/O</h2>
+  <div class="card section">
+    <h3>I/O Workload Experiment</h3>
+    <label>Size MB: <input id="io-size" type="number" value="100" style="width:80px"></label>
+    <br><button class="primary" onclick="runIoExperiment()">Run Write/Read Test</button>
+    <pre id="io-result">No experiment run yet.</pre>
+  </div>
+  <div class="card">
+    <h3>Raw Disk Stats (/proc/diskstats)</h3>
+    <button onclick="refreshDiskStats()">Refresh</button>
+    <pre id="io-raw">—</pre>
+  </div>
+</section>
+
+                                                   
+
+
+<section class="panel" id="panel-tiered">
+  <h2>TIERED MEMORY POLICY ENGINE</h2>
+  <p style="color:var(--muted);font-size:13px">
+    Fast tier = anonymous RAM. Slow tier = real swap.
+    Demotion via <code>madvise(MADV_PAGEOUT)</code>.
+    Measured via <code>/proc/self/status</code>.
+  </p>
+  <div class="card section">
+    <h3>Run Policy Experiment</h3>
+    <button class="primary" onclick="runTiered('baseline')">Baseline (no demotion)</button>
+    <button class="primary" onclick="runTiered('adaptive')">Adaptive (demote cold pages)</button>
+
+    <!-- ⬇⬇⬇ PASTE THIS NEW BLOCK HERE ⬇⬇⬇ -->
+    <div style="margin-top:14px">
+      <button class="primary" onclick="runTieredVisual('baseline')">Visual: Baseline</button>
+      <button class="primary" onclick="runTieredVisual('adaptive')">Visual: Adaptive</button>
+    </div>
+    <div class="grid" id="tiered-visual-stats" style="margin-top:12px"></div>
+    <div id="tiered-visual-grid" style="display:grid;grid-template-columns:repeat(64,10px);gap:1px;margin-top:12px"></div>
+
+    <!-- ⬆⬆⬆ END OF NEW BLOCK ⬆⬆⬆ -->
+
+    <div id="tiered-summary" style="margin-top:14px"></div>
+    <pre id="tiered-result" style="margin-top:10px">No experiment run yet.</pre>
+  </div>
+  
+
+  <div class="card section">
+    <h3>Address-Level Analysis (pagemap + multi-level paging)</h3>
+    <button class="primary" onclick="runPagingAnalysis()">Run Address Analysis</button>
+    <div class="grid" id="paging-stats" style="margin-top:12px"></div>
+    <div id="paging-prefix" style="font-family:monospace;font-size:12px;letter-spacing:2px;margin-top:12px;color:var(--accent);word-break:break-all"></div>
+    <table id="paging-table" style="margin-top:12px">
+      <thead><tr>
+        <th>Page #<br><span style="font-weight:400;text-transform:none;font-size:9px;color:var(--muted)">—</span></th>
+        <th>Virtual Address<br><span style="font-weight:400;text-transform:none;font-size:9px;color:var(--muted)">48-bit logical</span></th>
+        <th>Page Number<br><span style="font-weight:400;text-transform:none;font-size:9px;color:var(--muted)">bits 47:12</span></th>
+        <th>Page Offset<br><span style="font-weight:400;text-transform:none;font-size:9px;color:var(--muted)">bits 11:0</span></th>
+        <th style="color:#3fb950">Page Global Directory<br><span style="font-weight:400;text-transform:none;font-size:9px;color:var(--muted)">bits 47:39 · PGD</span></th>
+        <th style="color:#58a6ff">Page Upper Directory<br><span style="font-weight:400;text-transform:none;font-size:9px;color:var(--muted)">bits 38:30 · PUD</span></th>
+        <th style="color:#d29922">Page Middle Directory<br><span style="font-weight:400;text-transform:none;font-size:9px;color:var(--muted)">bits 29:21 · PMD</span></th>
+        <th style="color:#f85149">Page Table Entry<br><span style="font-weight:400;text-transform:none;font-size:9px;color:var(--muted)">bits 20:12 · PTE</span></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- PHASE SHIFT CARD REMOVED FROM DEMO (kept in report) -->
+  
+</section>
+
+                                                   
+
+<!-- EXPERIMENT LAB -->
+<section class="panel" id="panel-experiments">
+  <h2>EXPERIMENT LAB</h2>
+  <p style="color:var(--muted);font-size:13px">Quick launchers — full controls live on each engine's own tab.</p>
+  <div class="grid">
+    <div class="card"><h3>CPU</h3><button onclick="switchTab('cpu')">Open CPU Lab</button></div>
+    <div class="card"><h3>Concurrency</h3><button onclick="switchTab('lockguard')">Open LockGuard</button></div>
+    <div class="card"><h3>Memory</h3><button onclick="switchTab('memory')">Open Memory Lab</button></div>
+    <div class="card"><h3>Process</h3><button onclick="switchTab('processes')">Open Process Lab</button></div>
+    <div class="card"><h3>I/O</h3><button onclick="switchTab('io')">Open I/O Lab</button></div>
+                                                   <div class="card"><h3>Tiered Memory</h3><button onclick="switchTab('tiered')">Open Tiered Lab</button></div>
+  </div>
+</section>
+
+<!-- ANALYTICS -->
+<section class="panel" id="panel-analytics">
+  <h2>ANALYTICS — EXPERIMENT HISTORY</h2>
+  <button onclick="refreshAnalytics()">Refresh</button>
+  <div id="analytics-list"></div>
+</section>
+
+<!-- EXECUTION TRACE -->
+<section class="panel" id="panel-trace">
+  <h2>EXECUTION TRACE</h2>
+  <button onclick="refreshTrace()">Refresh</button>
+  <div id="trace-list" style="margin-top:10px"></div>
+</section>
+
+<!-- LEARN -->
+<section class="panel" id="panel-learn">
+  <h2>LEARN — OS CONCEPTS</h2>
+  <div id="learn-list" class="grid"></div>
+  <div class="card" id="learn-detail" style="display:none">
+    <h3 id="learn-title"></h3>
+    <div class="learn-body" id="learn-body"></div>
+  </div>
+</section>
+
+</main>
+
+<script>
+const API = "http://localhost:8000";
+
+// ---------- Navigation ----------
+document.querySelectorAll("nav .item").forEach(el => {
+  el.addEventListener("click", () => switchTab(el.dataset.tab));
+});
+function switchTab(tab){
+  document.querySelectorAll("nav .item").forEach(e => e.classList.toggle("active", e.dataset.tab === tab));
+  document.querySelectorAll(".panel").forEach(e => e.classList.remove("active"));
+  document.getElementById("panel-" + tab).classList.add("active");
+}
+
+function card(title, value){ return `<div class="card"><h3>${title}</h3><div class="big">${value}</div></div>`; }
+async function api(path, opts){
+  try { return await (await fetch(API + path, opts)).json(); }
+  catch(e){ return { error: "backend unreachable" }; }
+}
+
+// ---------- Dashboard ----------
+async function refreshDashboard(){
+  const snap = await api("/api/snapshot");
+  if (snap.error){ document.getElementById("live-status").textContent = "● BACKEND OFFLINE"; document.getElementById("live-status").style.color="var(--bad)"; return; }
+  document.getElementById("live-status").textContent = "● LIVE"; document.getElementById("live-status").style.color="var(--ok)";
+  document.getElementById("dash-overview").innerHTML = `
+    ${card("CPU", snap.cpu_percent + "%")}
+    ${card("Memory", snap.memory.used_percent + "%")}
+    ${card("Governor", snap.cpu_governor)}
+    ${card("Temp", (snap.cpu_temp_c ?? "n/a") + "°C")}
+    ${card("Zombies", snap.zombies.length)}
+  `;
+  const incidents = await api("/api/incidents");
+  document.getElementById("dash-incidents").innerHTML = (incidents.length ? incidents.slice(0,10).map(i =>
+    `<div class="incident ${i.severity}"><b>${i.type}</b> — ${i.detail}</div>`
+  ).join("") : "<i>No active incidents.</i>");
+}
+
+// ---------- CPU Lab ----------
+async function refreshCpu(){
+  const s = await api("/api/cpu/state");
+  if (s.error) return;
+  document.getElementById("cpu-overview").innerHTML = `
+    ${card("Utilization", s.utilization + "%")}
+    ${card("Governor", s.governor)}
+    ${card("Temp", (s.temp_c ?? "n/a") + "°C")}
+    ${card("Cores reporting freq", Object.keys(s.freq_mhz).length)}
+  `;
+}
+async function runCpuExperiment(){
+  document.getElementById("cpu-result").textContent = "Running…";
+  const seconds = document.getElementById("cpu-seconds").value;
+  const gov = document.getElementById("cpu-governor-select").value;
+  const q = gov ? `?seconds=${seconds}&target_governor=${gov}` : `?seconds=${seconds}`;
+  const r = await api(`/api/experiments/cpu/run${q}`, {method:"POST"});
+  document.getElementById("cpu-result").textContent = JSON.stringify(r, null, 2);
+  refreshCpu();
+}
+
+// ---------- LockGuard ----------
+async function startDeadlock(){
+  document.getElementById("deadlock-result").textContent = "Starting…";
+  const r = await api("/api/experiments/deadlock/start", {method:"POST"});
+  document.getElementById("deadlock-result").textContent = JSON.stringify(r, null, 2);
+}
+async function recoverDeadlock(){
+  const r = await api("/api/experiments/deadlock/recover?victim=ThreadB", {method:"POST"});
+  document.getElementById("deadlock-result").textContent = JSON.stringify(r, null, 2);
+}
+async function runGuardComparison(){
+  document.getElementById("deadlock-result").textContent = "Running comparison…";
+  const r = await api("/api/experiments/deadlock/guard-comparison?timeout_sec=3", {method:"POST"});
+  document.getElementById("deadlock-result").textContent = JSON.stringify(r, null, 2);
+}
+async function startStarvation(){
+  await api("/api/experiments/starvation/start", {method:"POST"});
+  setTimeout(refreshStarvation, 3000);
+}
+async function refreshStarvation(){
+  const r = await api("/api/experiments/starvation/report");
+  if (r.error) return;
+  const tbody = document.querySelector("#starvation-table tbody");
+  tbody.innerHTML = Object.entries(r).map(([name, d]) =>
+    `<tr><td>${name}</td><td>${d.service_count}</td><td>${d.avg_wait_sec}s</td><td>${d.max_wait_sec}s</td></tr>`
+  ).join("");
+}
+async function fixStarvation(){ await api("/api/experiments/starvation/fix", {method:"POST"}); }
+async function stopStarvation(){ await api("/api/experiments/starvation/stop", {method:"POST"}); }
+
+// ---------- Processes ----------
+async function createZombie(){
+  const r = await api("/api/experiments/zombie/create", {method:"POST"});
+  document.getElementById("zombie-result").textContent = JSON.stringify(r, null, 2);
+}
+async function zombieStatus(){
+  const r = await api("/api/experiments/zombie/status");
+  document.getElementById("zombie-result").textContent = JSON.stringify(r, null, 2);
+}
+async function reapZombie(){
+  const r = await api("/api/experiments/zombie/reap", {method:"POST"});
+  document.getElementById("zombie-result").textContent = JSON.stringify(r, null, 2);
+}
+async function refreshProcesses(){
+  const procs = await api("/api/processes?limit=30");
+  const tbody = document.querySelector("#process-table tbody");
+  tbody.innerHTML = (procs.error ? [] : procs).map(p =>
+    `<tr><td>${p.pid}</td><td>${p.ppid}</td><td>${p.name}</td><td>${p.state}${p.is_zombie ? ' <span class="badge">Z</span>' : ''}</td><td>${p.mem_kb}</td><td>${p.threads}</td></tr>`
+  ).join("");
+}
+
+// ---------- Memory ----------
+async function refreshMemory(){
+  const m = await api("/api/memory/state");
+  if (m.error) return;
+  document.getElementById("memory-overview").innerHTML = `
+    ${card("Used", m.used_percent + "%")}
+    ${card("Used MB", m.used_mb)}
+    ${card("Available MB", m.available_mb)}
+    ${card("Swap Used MB", m.swap_used_mb)}
+  `;
+}
+async function runMemoryExperiment(){
+  document.getElementById("memory-result").textContent = "Allocating…";
+  const target = document.getElementById("mem-target").value;
+  const hold = document.getElementById("mem-hold").value;
+  const r = await api(`/api/experiments/memory/run?target_mb=${target}&hold_seconds=${hold}`, {method:"POST"});
+  document.getElementById("memory-result").textContent = JSON.stringify(r, null, 2);
+  refreshMemory();
+}
+async function releaseMemory(){
+  const r = await api("/api/experiments/memory/release", {method:"POST"});
+  document.getElementById("memory-result").textContent = JSON.stringify(r, null, 2);
+  refreshMemory();
+}
+async function refreshTopMemory(){
+  const procs = await api("/api/memory/top-consumers?limit=10");
+  const tbody = document.querySelector("#memory-table tbody");
+  tbody.innerHTML = (procs.error ? [] : procs).map(p =>
+    `<tr><td>${p.pid}</td><td>${p.name}</td><td>${p.mem_kb}</td></tr>`
+  ).join("");
+}
+
+// ---------- I/O ----------
+async function runIoExperiment(){
+  document.getElementById("io-result").textContent = "Running…";
+  const size = document.getElementById("io-size").value;
+  const r = await api(`/api/experiments/io/run?size_mb=${size}`, {method:"POST"});
+  document.getElementById("io-result").textContent = JSON.stringify(r, null, 2);
+}
+   async function runTiered(mode){
+  document.getElementById("tiered-result").textContent = "Running " + mode + "…";
+  document.getElementById("tiered-summary").innerHTML = "";
+  const r = await api("/api/experiments/tiered/run?mode=" + mode, {method:"POST"});
+  if (r.error){ document.getElementById("tiered-result").textContent = r.error; return; }
+
+  const after  = r.stages["after policy"]   || {};
+  const during = r.stages["after workload"] || {};
+
+  document.getElementById("tiered-summary").innerHTML = `
+    ${card("Mode", r.mode)}
+    ${card("VmRSS before", (during.vmrss_kb||0) + " kB")}
+    ${card("VmRSS after",  (after.vmrss_kb||0)  + " kB")}
+    ${card("VmSwap after", (after.vmswap_kb||0) + " kB")}
+    ${card("Pages demoted", r.pages_demoted ?? "—")}
+  `;
+  document.getElementById("tiered-result").textContent = r.raw_output;
+}
+
+async function runTieredVisual(mode){
+  document.getElementById("tiered-visual-stats").innerHTML =
+    `<div class="card"><h3>Status</h3><div class="big">Running ${mode}…</div></div>`;
+  document.getElementById("tiered-visual-grid").innerHTML = "";
+  document.getElementById("tiered-result").textContent = "";
+
+  const r = await api("/api/experiments/tiered/visual?mode=" + mode, {method:"POST"});
+  if (r.error){
+    document.getElementById("tiered-visual-stats").innerHTML =
+      `<div class="card"><h3>Error</h3><div>${r.error}</div></div>`;
+    return;
+  }
+  const pct = (100.0 * r.resident / r.total).toFixed(1);
+  document.getElementById("tiered-visual-stats").innerHTML = `
+    ${card("Mode", r.mode)}
+    ${card("Resident in RAM", r.resident + " / " + r.total)}
+    ${card("Swapped to disk", r.swapped)}
+    ${card("Demoted by policy", r.demoted)}
+    ${card("Fast tier read", (r.fast_ns||0) + " ns")}
+    ${card("Slow tier read", (r.slow_ns||0).toLocaleString() + " ns")}
+    ${card("Slowdown", (r.slowdown_x||0).toFixed(0) + "\u00d7")}
+  `;
+  const gridEl = document.getElementById("tiered-visual-grid");
+  gridEl.style.display = "block";
+  gridEl.style.gridTemplateColumns = "none";
+  gridEl.style.gap = "0";
+  gridEl.style.marginTop = "16px";
+  gridEl.innerHTML =
+    '<div style="display:flex;height:48px;border-radius:8px;overflow:hidden;border:1px solid var(--line)">' +
+      '<div style="width:' + pct + '%;background:#3fb950;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#000;min-width:70px">' + pct + '% RAM</div>' +
+      '<div style="flex:1;background:#f85149;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff">' + (100-pct).toFixed(1) + '% SWAP</div>' +
+    '</div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:10px;flex-wrap:wrap;gap:8px">' +
+      '<span><span style="color:#3fb950;font-size:14px">■</span> Resident: <b style="color:var(--text)">' + r.resident + ' pages</b> (' + (r.resident*4096/1024/1024).toFixed(1) + ' MB)</span>' +
+      '<span><span style="color:#f85149;font-size:14px">■</span> Swapped: <b style="color:var(--text)">' + r.swapped + ' pages</b> (' + (r.swapped*4096/1024/1024).toFixed(1) + ' MB)</span>' +
+    '</div>';
+}
+async function runPagingAnalysis(){
+  document.getElementById("paging-stats").innerHTML =
+    `<div class="card"><h3>Status</h3><div class="big">Running…</div></div>`;
+  document.getElementById("paging-prefix").textContent = "";
+  document.querySelector("#paging-table tbody").innerHTML = "";
+  const r = await api("/api/experiments/paging/analyze", {method:"POST"});
+  if (r.error){
+    document.getElementById("paging-stats").innerHTML =
+      `<div class="card"><h3>Error</h3><div>${r.error}</div></div>`;
+    return;
+  }
+
+  
+  document.getElementById("paging-stats").innerHTML = `
+    ${card("Region base", r.region_base)}
+    ${card("Present (RAM)", r.present + " / " + r.total_pages)}
+    ${card("Swapped", r.swapped)}
+    ${card("Demoted by policy", r.demoted)}
+  `;
+  document.getElementById("paging-prefix").textContent =
+    (function(){
+      const ps = r.status_prefix;
+      const rows = [];
+      for (let i = 0; i < ps.length; i += 32) rows.push({ from: i, chars: ps.slice(i, i + 32) });
+      document.getElementById("paging-prefix").innerHTML =
+        '<div style="color:var(--muted);font-size:11px;margin-bottom:8px">Per-page residency, first 128 pages · <span style="color:#3fb950">P</span> = present in RAM · <span style="color:#f85149">S</span> = swapped to disk</div>' +
+        rows.map(rr =>
+          '<div style="display:flex;align-items:center;gap:12px;margin:3px 0">' +
+            '<span style="color:var(--muted);font-size:11px;width:90px">pages ' + rr.from + '–' + (rr.from + 31) + '</span>' +
+            '<span style="font-family:monospace;font-size:15px;letter-spacing:4px;line-height:1.4">' +
+              rr.chars.split('').map(c => c === 'P' ? '<span style="color:#3fb950">P</span>' :
+                                              c === 'S' ? '<span style="color:#f85149">S</span>' :
+                                              '<span style="color:var(--muted)">.</span>').join('') +
+            '</span>' +
+          '</div>'
+        ).join('');
+    })();
+  const tbody = document.getElementById("paging-table").querySelector("tbody");
+  const rowsHtml = r.decomposition.map(d =>
+    '<tr>' +
+    '<td>' + d.page + '</td>' +
+    '<td style="font-family:monospace">' + d.addr + '</td>' +
+    '<td style="font-family:monospace">' + d.pageno + '</td>' +
+    '<td style="font-family:monospace">' + d.offset + '</td>' +
+    '<td style="font-family:monospace;color:#3fb950">' + d.pgd + '</td>' +
+    '<td style="font-family:monospace;color:#58a6ff">' + d.pud + '</td>' +
+    '<td style="font-family:monospace;color:#d29922">' + d.pmd + '</td>' +
+    '<td style="font-family:monospace;color:#f85149">' + d.pte + '</td>' +
+    '</tr>'
+  ).join("");
+  tbody.innerHTML = rowsHtml;
+}
+
+async function runPhaseShift(){
+  document.getElementById("phase-stats").innerHTML =
+    `<div class="card"><h3>Status</h3><div class="big">Running…</div></div>`;
+  document.getElementById("phase-verdict").textContent = "";
+  const r = await api("/api/experiments/phase_shift/run", {method:"POST"});
+  if (r.error){
+    document.getElementById("phase-stats").innerHTML =
+      `<div class="card"><h3>Error</h3><div>${r.error}</div></div>`;
+    return;
+  }
+  document.getElementById("phase-stats").innerHTML = `
+    ${card("NAIVE keeps current hot set", r.naive_b + " / " + r.hot_pages)}
+    ${card("ADAPTIVE keeps current hot set", r.adapt_b + " / " + r.hot_pages)}
+    ${card("Fast tier budget", r.budget + " pages")}
+    ${card("Pages demoted (each run)", r.naive_demoted)}
+  `;
+  document.getElementById("phase-verdict").textContent = "→ " + r.verdict;
+}
+
+async function refreshDiskStats(){
+  const r = await api("/api/io/state");
+  document.getElementById("io-raw").textContent = JSON.stringify(r, null, 2);
+}
+
+// ---------- Analytics ----------
+async function refreshAnalytics(){
+  const hist = await api("/api/analytics/history?limit=20");
+  document.getElementById("analytics-list").innerHTML = (hist.error ? [] : hist).map(h =>
+    `<div class="card" style="margin-bottom:8px"><h3>${h.type} <span class="badge">${new Date(h.ts*1000).toLocaleTimeString()}</span></h3><pre>${JSON.stringify(h.result, null, 2)}</pre></div>`
+  ).join("") || "<i>No experiments recorded yet — run something from the Experiment Lab.</i>";
+}
+
+// ---------- Trace ----------
+async function refreshTrace(){
+  const entries = await api("/api/trace?limit=60");
+  document.getElementById("trace-list").innerHTML = (entries.error ? [] : entries).map(e =>
+    `<div class="trace-entry"><span class="kind">[${e.kind}]</span>${e.actor}: ${e.detail}</div>`
+  ).join("") || "<i>No trace entries yet.</i>";
+}
+
+// ---------- Learn ----------
+async function loadLearnIndex(){
+  const idx = await api("/api/learn");
+  if (idx.error) return;
+  document.getElementById("learn-list").innerHTML = Object.entries(idx).map(([key, title]) =>
+    `<div class="card"><h3>${title}</h3><button onclick="openLearn('${key}')">Read</button></div>`
+  ).join("");
+}
+async function openLearn(key){
+  const c = await api("/api/learn/" + key);
+  document.getElementById("learn-detail").style.display = "block";
+  document.getElementById("learn-title").textContent = c.title || key;
+  document.getElementById("learn-body").textContent = c.body || "No content.";
+}
+
+async function refreshFutex(){
+  try {
+    const r = await (await fetch("http://localhost:8001/events")).json();
+    const opName = {0:"FUTEX_WAIT", 9:"FUTEX_WAIT_BITSET", 255:"exit"};
+    document.getElementById("futex-status").textContent =
+      "● connected — " + r.total_events + " kernel events";
+    document.getElementById("futex-status").style.color = "var(--ok)";
+    document.getElementById("futex-stats").innerHTML = `
+      ${card("Kernel futex events", r.total_events)}
+      ${card("Blocked in kernel now", r.kernel_blocked_now)}
+      ${card("Python threads total", r.python_thread_count)}
+      ${card("Max wait observed", r.max_wait_us + " µs")}
+    `;
+    const cyc = r.cycles.length
+      ? r.cycles.map(c =>
+          `<div style="padding:6px 10px;border-left:3px solid var(--bad);background:#1c2128;margin:4px 0;font-size:13px">
+            ⚠ <b>Kernel-observed deadlock cycle</b> — TIDs ${c.tids.join(" ↔ ")} mutually blocked on ${c.uaddr}
+          </div>`).join("")
+      : '<div style="color:var(--muted);font-size:12px">no cycle currently forming at kernel level</div>';
+    document.getElementById("futex-cycles").innerHTML = cyc;
+    const w = r.current_waiters.map(x =>
+      `<div style="padding:4px 8px;border-left:2px solid var(--warn);background:#1c2128;margin:3px 0;font-size:12px">
+        TID ${x.tid} blocked on <span style="font-family:monospace">${x.uaddr}</span> for <b>${x.waiting_ms} ms</b>
+      </div>`).join("");
+    document.getElementById("futex-waiters").innerHTML = w ||
+      '<span style="color:var(--muted);font-size:12px">no threads currently blocked</span>';
+    const tbody = document.querySelector("#futex-table tbody");
+    tbody.innerHTML = r.recent.slice().reverse().map(e => {
+      const secs = ((e.ts_ns - r.recent[0].ts_ns) / 1e9).toFixed(3);
+      return `<tr>
+        <td>${secs}</td><td>${e.pid}</td><td>${e.tid}</td>
+        <td>${e.comm}</td><td style="font-family:monospace">${e.uaddr}</td>
+        <td>${opName[e.op] || e.op}</td><td>${e.wait_us||"—"}</td></tr>`;
+    }).join("");
+  } catch(e) {
+    document.getElementById("futex-status").textContent =
+      "● bridge not running (start lockguard_bridge.py)";
+    document.getElementById("futex-status").style.color = "var(--bad)";
+  }
+}
+setInterval(refreshFutex, 1000);
+
+// ---------- Init ----------
+setInterval(refreshDashboard, 3000);
+refreshDashboard();
+refreshCpu();
+refreshProcesses();
+refreshMemory();
+loadLearnIndex();
+</script>
+</body>
+</html>
