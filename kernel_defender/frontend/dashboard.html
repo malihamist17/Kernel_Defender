@@ -1334,6 +1334,93 @@ async function openLearn(key){
   document.getElementById("learn-body").textContent = c.body || "No content.";
 }
 
+
+// ---------- Tiered Memory Lab ----------
+async function runTiered(mode){
+  document.getElementById("tiered-result").textContent = "Running…";
+  document.getElementById("tiered-summary").innerHTML = "";
+  const r = await api("/api/experiments/tiered/run?mode=" + mode, {method:"POST"});
+  if (r.error){ document.getElementById("tiered-result").textContent = r.error; return; }
+  const a = r.stages["after policy"] || {}, d = r.stages["after workload"] || {};
+  document.getElementById("tiered-summary").innerHTML = `
+    ${card("Mode", r.mode)}${card("VmRSS before", (d.vmrss_kb||0)+" kB")}
+    ${card("VmRSS after", (a.vmrss_kb||0)+" kB")}
+    ${card("VmSwap after", (a.vmswap_kb||0)+" kB")}
+    ${card("Pages demoted", r.pages_demoted ?? "—")}`;
+  document.getElementById("tiered-result").textContent = r.raw_output;
+}
+async function runTieredVisual(mode){
+  document.getElementById("tiered-visual-stats").innerHTML = `<div class="card"><h3>Running…</h3></div>`;
+  document.getElementById("tiered-visual-grid").innerHTML = "";
+  const r = await api("/api/experiments/tiered/visual?mode=" + mode, {method:"POST"});
+  if (r.error){ document.getElementById("tiered-visual-stats").innerHTML = `<div class="card"><h3>Error</h3><div>${r.error}</div></div>`; return; }
+  const pct = (100.0 * r.resident / r.total).toFixed(1);
+  document.getElementById("tiered-visual-stats").innerHTML = `
+    ${card("Mode", r.mode)}${card("Resident", r.resident + "/" + r.total)}
+    ${card("Swapped", r.swapped)}${card("Fast read", (r.fast_ns||0)+" ns")}
+    ${card("Slow read", (r.slow_ns||0).toLocaleString()+" ns")}
+    ${card("Slowdown", (r.slowdown_x||0).toFixed(0)+"×")}`;
+  document.getElementById("tiered-visual-grid").innerHTML =
+    '<div style="display:flex;height:48px;border-radius:8px;overflow:hidden;border:1px solid var(--line)">' +
+      '<div style="width:' + pct + '%;background:#3fb950;display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;min-width:70px">' + pct + '% RAM</div>' +
+      '<div style="flex:1;background:#f85149;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff">' + (100-pct).toFixed(1) + '% SWAP</div></div>';
+}
+async function runPagingAnalysis(){
+  document.getElementById("paging-stats").innerHTML = `<div class="card"><h3>Running…</h3></div>`;
+  document.getElementById("paging-prefix").textContent = "";
+  document.querySelector("#paging-table tbody").innerHTML = "";
+  const r = await api("/api/experiments/paging/analyze", {method:"POST"});
+  if (r.error){ document.getElementById("paging-stats").innerHTML = `<div class="card"><h3>Error</h3><div>${r.error}</div></div>`; return; }
+  document.getElementById("paging-stats").innerHTML = `
+    ${card("Region base", r.region_base)}${card("Present", r.present+"/"+r.total_pages)}
+    ${card("Swapped", r.swapped)}${card("Demoted", r.demoted)}`;
+  const ps = r.status_prefix, rows = [];
+  for (let i = 0; i < ps.length; i += 32) rows.push({from:i, chars:ps.slice(i,i+32)});
+  document.getElementById("paging-prefix").innerHTML =
+    '<div style="color:var(--muted);font-size:11px;margin-bottom:8px">P = present · S = swapped · first 128 pages</div>' +
+    rows.map(rr =>
+      '<div style="display:flex;gap:12px;margin:3px 0"><span style="color:var(--muted);font-size:11px;width:90px">pages '+rr.from+'–'+(rr.from+31)+'</span>' +
+      '<span style="font-family:monospace;font-size:15px;letter-spacing:4px">' +
+      rr.chars.split('').map(c=>c==='P'?'<span style="color:#3fb950">P</span>':c==='S'?'<span style="color:#f85149">S</span>':'<span style="color:var(--muted)">.</span>').join('') +
+      '</span></div>').join('');
+  const tbody = document.querySelector("#paging-table tbody");
+  tbody.innerHTML = r.decomposition.map(d =>
+    `<tr><td>${d.page}</td><td style="font-family:monospace">${d.addr}</td><td style="font-family:monospace">${d.pageno}</td><td style="font-family:monospace">${d.offset}</td><td style="font-family:monospace;color:#3fb950">${d.pgd}</td><td style="font-family:monospace;color:#58a6ff">${d.pud}</td><td style="font-family:monospace;color:#d29922">${d.pmd}</td><td style="font-family:monospace;color:#f85149">${d.pte}</td></tr>`
+  ).join("");
+}
+async function runPhaseShift(){
+  document.getElementById("phase-stats").innerHTML = `<div class="card"><h3>Running…</h3></div>`;
+  document.getElementById("phase-verdict").textContent = "";
+  const r = await api("/api/experiments/phase_shift/run", {method:"POST"});
+  if (r.error){ document.getElementById("phase-stats").innerHTML = `<div class="card"><h3>Error</h3><div>${r.error}</div></div>`; return; }
+  document.getElementById("phase-stats").innerHTML = `
+    ${card("NAIVE keeps hot set", r.naive_b + "/" + r.hot_pages)}
+    ${card("ADAPTIVE keeps hot set", r.adapt_b + "/" + r.hot_pages)}
+    ${card("Fast tier budget", r.budget + " pages")}
+    ${card("Pages demoted", r.naive_demoted)}`;
+  document.getElementById("phase-verdict").textContent = "→ " + r.verdict;
+}
+async function refreshFutex(){
+  try {
+    const r = await (await fetch("http://localhost:8001/events")).json();
+    document.getElementById("futex-status").textContent = "● " + r.total_events + " kernel events";
+    document.getElementById("futex-status").style.color = "var(--ok)";
+    document.getElementById("futex-stats").innerHTML = `
+      ${card("Futex events", r.total_events)}${card("Blocked now", r.kernel_blocked_now)}
+      ${card("Python threads", r.python_thread_count)}${card("Max wait", r.max_wait_us+" µs")}`;
+    document.getElementById("futex-cycles").innerHTML = r.cycles.length
+      ? r.cycles.map(c => `<div style="padding:6px 10px;border-left:3px solid var(--bad);background:#1c2128;margin:4px 0;font-size:13px">⚠ cycle — TIDs ${c.tids.join(" ↔ ")} on ${c.uaddr}</div>`).join("")
+      : '<div style="color:var(--muted);font-size:12px">no cycle currently forming</div>';
+    document.getElementById("futex-waiters").innerHTML = r.current_waiters.map(x =>
+      `<div style="padding:4px 8px;border-left:2px solid var(--warn);background:#1c2128;margin:3px 0;font-size:12px">TID ${x.tid} blocked on ${x.uaddr} for <b>${x.waiting_ms} ms</b></div>`
+    ).join("") || '<span style="color:var(--muted);font-size:12px">no threads currently blocked</span>';
+  } catch(e) {
+    document.getElementById("futex-status").textContent = "● bridge not running";
+    document.getElementById("futex-status").style.color = "var(--bad)";
+  }
+}
+setInterval(refreshFutex, 1000);
+
 // ---------- Init ----------
 // ---------- Global live-command popup (shows every real command as it runs) ----------
 let _lastSeenTraceTs = Date.now() / 1000;

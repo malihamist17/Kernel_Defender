@@ -7,3 +7,6 @@ tiered_live
 paging_analysis
 phase_shift
 *.o
+lru_break
+lru_break2
+pagemap_pid

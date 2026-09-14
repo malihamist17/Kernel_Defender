@@ -1,4 +1,4 @@
-#!/home/malihat/kerneldefenderv2/kernel_defender/backend/venv/bin/python3
+#!/home/mahi-rat/Kernel_Defender/kernel_defender/backend/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys
