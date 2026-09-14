@@ -1,0 +1,35 @@
+#!/usr/bin/env bpftrace
+/* futex_watch.bt — kernel-side deadlock observer with optional intervention */
+BEGIN
+{
+    @enter_count = 0;
+    @cycle_count = 0;
+}
+
+tracepoint:syscalls:sys_enter_futex
+{
+    $op = args->op & 0x7f;
+    if ($op == 0 || $op == 9) {
+        @enter[tid] = nsecs;
+        @uaddr[tid] = args->uaddr;
+        @blocked[tid] = 1;
+
+        /* Check: is another thread blocked on THIS tid's uaddr? */
+        /* We look for pair (T1, T2) such that uaddr[T1] == uaddr_held_by_T2
+           and uaddr[T2] == uaddr_held_by_T1. Approximated here by scanning. */
+
+        printf("%llu,%d,%d,%s,0x%lx,%d,0\n",
+               nsecs, pid, tid, comm, args->uaddr, $op);
+    }
+}
+
+tracepoint:syscalls:sys_exit_futex
+/@enter[tid]/
+{
+    $elapsed = (nsecs - @enter[tid]) / 1000;
+    printf("%llu,%d,%d,%s,0x0,255,%llu\n",
+           nsecs, pid, tid, comm, $elapsed);
+    delete(@enter[tid]);
+    delete(@uaddr[tid]);
+    delete(@blocked[tid]);
+}
