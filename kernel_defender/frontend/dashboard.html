@@ -71,6 +71,7 @@
   <div class="item" data-tab="scheduling">📅 Scheduling Lab</div>
   <div class="item" data-tab="trace">📜 Execution Trace</div>
   <div class="item" data-tab="learn">📖 Learn</div>
+  <div class="item" data-tab="tiered">🧬 Tiered Memory</div>
 </nav>
 
 <main>
@@ -228,6 +229,17 @@
       </div>
     </div>
   </div>
+
+
+    <div class="card section" style="margin-top:18px;border-top:2px solid var(--accent)">
+      <h3>Kernel-Level Observation (eBPF + futex tracepoint)</h3>
+      <p style="color:var(--muted);font-size:12px;">Independent kernel-side view via bpftrace on <code>sys_enter_futex</code>.</p>
+      <button onclick="refreshFutex()">Refresh</button>
+      <span id="futex-status" style="color:var(--muted);font-size:12px;margin-left:10px">waiting…</span>
+      <div class="grid" id="futex-stats" style="margin-top:12px"></div>
+      <div id="futex-cycles" style="margin-top:12px"></div>
+      <div id="futex-waiters" style="margin-top:12px"></div>
+    </div>
 
   <!-- PROCESSES -->
   <div class="subpanel" id="sub-processes">
@@ -485,6 +497,47 @@ cat /proc/kernel_defender   # verify</pre>
   </div>
 </section>
 
+
+<section class="panel" id="panel-tiered">
+  <h2>TIERED MEMORY POLICY ENGINE</h2>
+  <p style="color:var(--muted);font-size:13px">Userspace policy driving madvise(MADV_PAGEOUT) to demote cold pages to real swap.</p>
+
+  <div class="card section">
+    <h3>Run Policy Experiment</h3>
+    <button class="primary" onclick="runTiered('baseline')">Baseline</button>
+    <button class="primary" onclick="runTiered('adaptive')">Adaptive</button>
+    <div id="tiered-summary" style="margin-top:14px"></div>
+    <pre id="tiered-result" style="margin-top:10px">No experiment run yet.</pre>
+  </div>
+
+  <div class="card section">
+    <h3>Visual Page Map</h3>
+    <button class="primary" onclick="runTieredVisual('baseline')">Visual: Baseline</button>
+    <button class="primary" onclick="runTieredVisual('adaptive')">Visual: Adaptive</button>
+    <div class="grid" id="tiered-visual-stats" style="margin-top:12px"></div>
+    <div id="tiered-visual-grid" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card section">
+    <h3>Address-Level Analysis</h3>
+    <button class="primary" onclick="runPagingAnalysis()">Run Address Analysis</button>
+    <div class="grid" id="paging-stats" style="margin-top:12px"></div>
+    <div id="paging-prefix" style="font-family:monospace;font-size:12px;margin-top:12px;color:var(--accent);word-break:break-all"></div>
+    <table id="paging-table" style="margin-top:12px">
+      <thead><tr><th>Page #</th><th>Addr</th><th>PgNum</th><th>Offset</th>
+      <th style="color:#3fb950">PGD</th><th style="color:#58a6ff">PUD</th>
+      <th style="color:#d29922">PMD</th><th style="color:#f85149">PTE</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card section">
+    <h3>Phase-Shift Test</h3>
+    <button class="primary" onclick="runPhaseShift()">Run Phase-Shift Test</button>
+    <div class="grid" id="phase-stats" style="margin-top:12px"></div>
+    <div id="phase-verdict" style="margin-top:12px;color:var(--warn);font-size:13px"></div>
+  </div>
+</section>
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>

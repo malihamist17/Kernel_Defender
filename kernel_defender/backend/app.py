@@ -8,6 +8,8 @@ Then open frontend/dashboard.html.
 """
 import sys
 import threading
+import subprocess
+import re
 import time
 import uuid
 
@@ -353,6 +355,75 @@ def stop_cpu_stress():
     return result
 
 
+# ---------------- Tiered Memory Lab ----------------
+
+@app.post("/api/experiments/tiered/run")
+def run_tiered(mode: str = "baseline"):
+    if mode not in ("baseline", "adaptive"):
+        return {"error": "mode must be 'baseline' or 'adaptive'"}
+    try:
+        proc = subprocess.run(["/home/mahi-rat/tiered", mode],
+                              capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"error": "binary not available"}
+    output = proc.stdout
+    stages = {}
+    for m in re.finditer(r"\[(after [^\]]+)\]\s+VmRSS=(\d+)\s+kB\s+VmSwap=(\d+)\s+kB", output):
+        stages[m.group(1)] = {"vmrss_kb": int(m.group(2)), "vmswap_kb": int(m.group(3))}
+    dm = re.search(r"queued (\d+) pages for demotion", output)
+    return {"mode": mode, "stages": stages,
+            "pages_demoted": int(dm.group(1)) if dm else None, "raw_output": output}
+
+
+@app.post("/api/experiments/tiered/visual")
+def run_tiered_visual(mode: str = "adaptive"):
+    if mode not in ("baseline", "adaptive"):
+        return {"error": "mode must be 'baseline' or 'adaptive'"}
+    try:
+        proc = subprocess.run(["/home/mahi-rat/tiered_live", mode, "--json"],
+                              capture_output=True, text=True, timeout=90)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"error": "binary not available"}
+    out = proc.stdout
+    start, end = out.find("{"), out.rfind("}") + 1
+    if start < 0 or end <= start:
+        return {"error": "no JSON"}
+    import json as jsonlib
+    data = jsonlib.loads(out[start:end])
+    data["mode"] = mode
+    return data
+
+
+@app.post("/api/experiments/paging/analyze")
+def paging_analyze():
+    try:
+        proc = subprocess.run(["/home/mahi-rat/paging_analysis", "--json"],
+                              capture_output=True, text=True, timeout=90)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"error": "binary not available"}
+    out = proc.stdout
+    start, end = out.find("{"), out.rfind("}") + 1
+    if start < 0 or end <= start:
+        return {"error": "no JSON"}
+    import json as jsonlib
+    return jsonlib.loads(out[start:end])
+
+
+@app.post("/api/experiments/phase_shift/run")
+def run_phase_shift():
+    try:
+        proc = subprocess.run(["/home/mahi-rat/phase_shift", "--json"],
+                              capture_output=True, text=True, timeout=180)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"error": "binary not available"}
+    out = proc.stdout
+    start, end = out.find("{"), out.rfind("}") + 1
+    if start < 0 or end <= start:
+        return {"error": "no JSON"}
+    import json as jsonlib
+    return jsonlib.loads(out[start:end])
+
+
 # ---------------- LockGuard: Deadlock ----------------
 
 @app.post("/api/experiments/deadlock/start")
@@ -490,6 +561,18 @@ LEARN_CONTENT = {
                 "total capacity, forcing the kernel to reclaim pages, evict "
                 "caches, or swap. Sustained pressure degrades performance "
                 "system-wide, not just for the allocating process.",
+    },
+    "tiered_memory": {
+        "title": "Memory Tiering (CXL-Ready)",
+        "body": "Userspace policy driving madvise(MADV_PAGEOUT) to demote cold pages to real swap.",
+    },
+    "paging_analysis": {
+        "title": "Virtual-to-Physical Address Translation & Multi-Level Paging",
+        "body": "Per-page PGD/PUD/PMD/PTE decomposition from /proc/self/pagemap.",
+    },
+    "phase_shift": {
+        "title": "Phase-Shifting Workloads and the Limit of Userspace Policy",
+        "body": "Negative result: the kernel LRU already handles workload shifts.",
     },
     "io_bottleneck": {
         "title": "I/O Bottleneck",
